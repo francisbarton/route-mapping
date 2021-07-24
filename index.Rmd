@@ -1,0 +1,179 @@
+---
+title: Analysis of routes from areas south of the Thames to the north, and vice versa, with regard to the proportion that would use the Dartford Crossing
+output:
+  html_document:
+    highlight: zenburn
+
+---
+
+```{r include=FALSE}
+# "default", "tango", "pygments", "kate", "monochrome", "espresso", "zenburn", and "haddock"
+```
+
+
+
+```{r libraries, message = FALSE, class.source = 'fold-hide'}
+
+# thanks John https://twitter.com/john_t_ormerod/status/1415493238442532864
+library <- function(...) {
+  suppressPackageStartupMessages(base::library(...))
+}
+
+library(here)
+library(tidyverse)
+library(openrouteservice)
+library(jogger)
+library(sf)
+library(tmap)
+
+```
+
+
+## The point of this project:
+
+To find out
+
+## Summary of the process and its design
+
+### Assumptions:
+
+* MSOA populations are equal
+* All areas are equally likely to travel to all other areas
+* No recommended route between two places on the same side of the river Thames will ever use the Crossing (pretty safe assumption)
+* The deterrent effect of the Crossing toll itself is nil (Unlikely. What extra proportion of journey time/distance would people tolerate to avoid the toll charge? On the other hand, the Crossing forms part of the M25, and the only alternative road crossing is the Blackwall Tunnel 18km to the west (or the Woolwich Ferry 14km to the west) and involves travelling into the built-up area of London, so what're you going to do? You're not going to come off the M25 specially. However, if you live nearby, or are a regular user of the tunnel for other reasons, you would be more likely to look into using public transport.)
+
+## Obtain the geospatial data (centroids of MSOAs and LADs)
+
+Using my [`jogger`][jogger] package
+
+
+[jogger]: https://github.com/francisbarton/jogger
+
+
+```{r get-geo-data, eval = FALSE, code = readLines(here("R/get_geo_data.R")), class.source = 'fold-hide'}
+
+```
+
+
+```{r read-in-data, echo = FALSE}
+
+north_lads <- readRDS(here::here("rds_data", "north_lads.Rds"))
+south_lads <- readRDS(here::here("rds_data", "south_lads.Rds"))
+north_msoas <- readRDS(here::here("rds_data", "north_msoas.Rds"))
+south_msoas <- readRDS(here::here("rds_data", "south_msoas.Rds"))
+```
+
+Create a test/target area representing the crossing, that we will use to see if certain routes pass that way:
+
+```{r create-crossing, eval = FALSE, code = readLines(here("R/crossing_sf.R"))}
+
+```
+
+
+And the meat of this project, the various functions that use openrouteservice to generate recommended driving routes from A to B and test which ones use the Dartford Crossing:
+
+```{r functions, eval = FALSE, code = readLines(here("R/functions.R"))}
+
+```
+
+
+```{r tmap-setup, echo = FALSE, message = FALSE}
+tmap::tmap_mode("view")
+tmap::tmap_options(basemaps = "CartoDB.Positron")
+```
+
+
+```{r plot-functions}
+# pass `keep_sf` for a sample MSOA from some UTLAs, and illustrate the
+# crossings and non-crossings using tmap
+plot_crossing_lines <- function(sf_df) {
+  sf_df %>%
+    dplyr::select(!status) %>%
+    dplyr::group_by(msoa11cd, msoa11nm, msoa11hclnm, crosses) %>%
+    dplyr::summarise() %>%
+    ungroup() %>%
+    tmap::tm_shape() +
+    tmap::tm_lines(col = "crosses", palette = "Dark2", lwd = 2)
+}
+
+
+plot_results <- function(sf_df) {
+  sf_df %>%
+    tmap::tm_shape() +
+    tmap::tm_symbols(
+      col = "crossings",
+      palette = "RdPu",
+      id = "msoa11hclnm",
+      n = 5,
+      size = 0.8,
+      border.alpha = 0
+      )
+}
+
+```
+
+
+
+```{r east-sussex-analysis, eval = FALSE}
+# run as RStudio job - 39 mins for 69 MSOAs
+es_vs_north_lads <- south_msoas %>% 
+  dplyr::filter(utla21nm == "East Sussex") %>% 
+  check_full_list(north_lads)
+saveRDS(es_vs_north_lads, here::here("rds_data", "es_vs_north_lads.Rds"))
+
+```
+
+
+```{r east-sussex-plot, eval = FALSE, echo = FALSE}
+readRDS(here::here("rds_data", "es_vs_north_lads.Rds")) %>% 
+  plot_results()
+
+```
+
+
+```{r thurrock-analysis, eval = FALSE}
+# run as RStudio job -  11m for 19 MSOAs
+thurrock_vs_south_lads <- north_msoas %>%
+  dplyr::filter(utla21nm == "Thurrock") %>%
+  check_full_list(south_lads)
+
+saveRDS(thurrock_vs_south_lads, here::here("rds_data", "thurrock_vs_south_lads.Rds"))
+
+```
+
+
+```{r thurrock-plot, eval = FALSE, echo = FALSE}
+readRDS(here::here("rds_data", "thurrock_vs_south_lads.Rds")) %>% 
+  plot_results()
+
+```
+
+
+```{r essex-analysis, eval = FALSE}
+# run as RStudio job -  1h 52m for 175 MSOAs
+essex_vs_south_lads <- north_msoas %>%
+  dplyr::filter(utla21nm == "Essex") %>%
+  check_full_list(south_lads)
+
+saveRDS(essex_vs_south_lads, here::here("rds_data", "essex_vs_south_lads.Rds"))
+
+```
+
+
+```{r essex-plot, eval = FALSE, echo = FALSE}
+readRDS(here::here("rds_data", "essex_vs_south_lads.Rds")) %>% 
+  plot_results()
+
+```
+
+
+
+```{r latest-plot}
+dplyr::bind_rows(
+  readRDS(here::here("rds_data", "thurrock_vs_south_lads.Rds")),
+  readRDS(here::here("rds_data", "essex_vs_south_lads.Rds")),
+  readRDS(here::here("rds_data", "es_vs_north_lads.Rds"))
+  ) %>% 
+  plot_results()
+
+```
